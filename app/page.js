@@ -23,6 +23,18 @@ export default function LiffPage() {
       if (!liff.isLoggedIn()) liff.login();
       const profile = await liff.getProfile();
       setUser(profile);
+
+      // 偷偷將同學的 LINE 個資存入資料庫
+      fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: profile.userId,
+          displayName: profile.displayName,
+          pictureUrl: profile.pictureUrl
+        })
+      });
+
       if (profile.userId === ADMIN_ID) {
         setIsAdminView(true);
         setActiveTab('admin_print');
@@ -52,7 +64,6 @@ export default function LiffPage() {
   // 👥 用戶分頁組件 (User Views)
   // ==========================================
 
-  // 1. 點數區
   const UserPointsTab = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[2.5rem] p-10 text-white shadow-2xl shadow-blue-200 relative overflow-hidden">
@@ -78,25 +89,18 @@ export default function LiffPage() {
     </div>
   );
 
-  // 2. 照片與狀態區
   const UserPhotosTab = () => (
     <div className="space-y-4 pb-24 animate-in fade-in duration-500">
       <h2 className="text-2xl font-black text-slate-800 px-1">傳送紀錄</h2>
       {data.logs.length > 0 ? data.logs.map((log) => (
         <div key={log.id} className="bg-white rounded-2xl p-4 flex items-center gap-4 border border-slate-100 shadow-sm active:scale-95 transition-transform">
-          <img 
-            src={`https://drive.google.com/thumbnail?id=${log.driveFileId}&sz=w200`} 
-            className="w-20 h-20 rounded-2xl object-cover bg-slate-50"
-            alt="print"
-          />
+          <img src={`https://drive.google.com/thumbnail?id=${log.driveFileId}&sz=w200`} className="w-20 h-20 rounded-2xl object-cover bg-slate-50" alt="print" />
           <div className="flex-1">
             <div className="flex justify-between items-start mb-1">
               <span className="text-xs font-bold text-slate-400">#{log.id.slice(-4)}</span>
               <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-tighter ${
                 log.status === '已完成' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
-              }`}>
-                {log.status}
-              </span>
+              }`}>{log.status}</span>
             </div>
             <p className="text-slate-700 font-bold text-sm">照片上傳成功</p>
             <p className="text-slate-400 text-[10px] mt-1">{new Date(log.createdAt).toLocaleString('zh-TW')}</p>
@@ -111,7 +115,6 @@ export default function LiffPage() {
     </div>
   );
 
-  // 3. 會員 QR 區
   const UserMemberTab = () => (
     <div className="text-center space-y-6 animate-in zoom-in-95 duration-500">
       <div className="bg-white rounded-[3rem] p-10 shadow-xl border border-slate-50">
@@ -145,7 +148,7 @@ export default function LiffPage() {
           <img src={`https://drive.google.com/thumbnail?id=${photo.driveFileId}&sz=w800`} className="w-full h-64 object-contain bg-black" />
           <div className="p-5 flex justify-between items-center">
             <div>
-              <p className="text-xs font-bold text-slate-400">UserID: {photo.userId.slice(0, 8)}...</p>
+              <p className="text-xs font-bold text-slate-400">UserID: {photo.userId?.slice(0, 8)}...</p>
               <p className="text-xs text-slate-300 mt-1">{new Date(photo.createdAt).toLocaleTimeString()}</p>
             </div>
             <button 
@@ -168,14 +171,21 @@ export default function LiffPage() {
       <h2 className="text-2xl font-black text-slate-800 px-1">用戶點數總覽</h2>
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
         {adminUsers.map(u => (
-          <div key={u.id} className="flex justify-between items-center p-5 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+          <div key={u.id} className="flex justify-between items-center p-4 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-lg">👤</div>
-              <span className="text-sm font-bold text-slate-700 truncate w-32">{u.id.slice(0, 15)}...</span>
+              {u.pictureUrl ? (
+                <img src={u.pictureUrl} className="w-12 h-12 rounded-full object-cover shadow-sm border border-slate-100" />
+              ) : (
+                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-lg shadow-sm border border-slate-50">👤</div>
+              )}
+              <div className="flex flex-col">
+                <span className="text-sm font-bold text-slate-700 truncate w-32">{u.displayName || '未開通通行證'}</span>
+                <span className="text-[10px] font-mono text-slate-400 truncate w-32">{u.id}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-black text-slate-900">{u.points}</span>
-              <span className="text-[10px] font-bold text-slate-400 uppercase">pts</span>
+            <div className="flex items-center gap-1 bg-blue-50 px-3 py-1.5 rounded-full">
+              <span className="text-lg font-black text-blue-600">{u.points}</span>
+              <span className="text-[10px] font-bold text-blue-400 uppercase">pts</span>
             </div>
           </div>
         ))}
@@ -184,14 +194,16 @@ export default function LiffPage() {
   );
 
   const AdminMemberTab = () => (
-    <div className="space-y-6 text-center">
+    <div className="space-y-6 text-center pb-24">
       <h2 className="text-2xl font-black text-slate-800">快速核點器</h2>
       {!scannedUser ? (
         <button 
           onClick={async () => {
-            const res = await liff.scanCodeV2();
-            const userRes = await fetch(`/api/admin?type=member&userId=${res.value}`);
-            if (userRes.ok) setScannedUser(await userRes.json());
+            try {
+              const res = await liff.scanCodeV2();
+              const userRes = await fetch(`/api/admin?type=member&userId=${res.value}`);
+              if (userRes.ok) setScannedUser(await userRes.json());
+            } catch(e) { console.log('Scan Cancelled or Error'); }
           }}
           className="w-full bg-indigo-600 text-white py-12 rounded-[3rem] text-2xl font-black shadow-2xl shadow-indigo-200 active:scale-95 transition-all"
         >
@@ -199,8 +211,9 @@ export default function LiffPage() {
         </button>
       ) : (
         <div className="bg-white rounded-[3rem] p-10 shadow-xl border border-slate-50 animate-in zoom-in-95">
-          <p className="text-xs font-bold text-slate-300 tracking-widest uppercase mb-2">Scanned ID</p>
-          <p className="text-xs font-mono mb-8 break-all opacity-50 px-6">{scannedUser.userId}</p>
+          {scannedUser.pictureUrl && <img src={scannedUser.pictureUrl} className="w-20 h-20 rounded-full mx-auto mb-4 shadow-md" />}
+          <h3 className="text-xl font-bold text-slate-800 mb-2">{scannedUser.displayName || '未知用戶'}</h3>
+          <p className="text-[10px] font-mono mb-8 break-all opacity-50 px-6">{scannedUser.userId}</p>
           <div className="text-8xl font-black text-slate-800 mb-10">{scannedUser.points}</div>
           <div className="grid grid-cols-2 gap-4">
             <button 
