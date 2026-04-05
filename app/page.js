@@ -5,174 +5,184 @@ import QRCode from 'react-qr-code';
 
 export default function LiffPage() {
   const [user, setUser] = useState(null);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false); 
-  const [isAdminView, setIsAdminView] = useState(false);   
-  const [activeTab, setActiveTab] = useState('points'); 
-  
-  const [data, setData] = useState({ points: 0, logs: [] });
-  const [adminData, setAdminData] = useState({ pendingPhotos: [] }); 
+  const [isAdminView, setIsAdminView] = useState(false);
+  const [activeTab, setActiveTab] = useState('points');
   const [loading, setLoading] = useState(true);
 
-  // 👑 組長專屬 ID (請務必修改此處)
-  const ADMIN_ID = "U504c5a2721f2c5345b538137d3e0f66d"; 
+  // 資料狀態
+  const [data, setData] = useState({ points: 0, logs: [] }); // 用戶本人資料
+  const [adminPhotos, setAdminPhotos] = useState([]);      // 管理員：列印區
+  const [adminUsers, setAdminUsers] = useState([]);        // 管理員：用戶區
+  const [scannedUser, setScannedUser] = useState(null);    // 管理員：會員掃描結果
+
+  const ADMIN_ID = "你的_LINE_USER_ID"; // ⚠️ 記得換成你的 ID
 
   useEffect(() => {
-    const initLiff = async () => {
-      try {
-        await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
-        if (!liff.isLoggedIn()) {
-          liff.login();
-        } else {
-          const profile = await liff.getProfile();
-          setUser(profile);
-          
-          if (profile.userId === ADMIN_ID) {
-            setIsSuperAdmin(true);
-            setIsAdminView(true);
-            setActiveTab('photo_manage');
-            fetchAdminData(); 
-          }
-          fetchData(profile.userId);
-        }
-      } catch (err) {
-        console.error('LIFF Error:', err);
+    liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID }).then(async () => {
+      if (!liff.isLoggedIn()) liff.login();
+      const profile = await liff.getProfile();
+      setUser(profile);
+      if (profile.userId === ADMIN_ID) {
+        setIsAdminView(true);
+        setActiveTab('admin_print');
+        fetchAdminPhotos();
       }
-    };
-    initLiff();
+      fetchUserData(profile.userId);
+    });
   }, []);
 
-  const fetchData = async (userId) => {
-    const res = await fetch(`/api/user?userId=${userId}`);
+  // --- API 請求函式 ---
+  const fetchUserData = async (uid) => {
+    const res = await fetch(`/api/user?userId=${uid}`);
     if (res.ok) setData(await res.json());
     setLoading(false);
   };
 
-  const fetchAdminData = async () => {
-    const res = await fetch('/api/admin');
-    if (res.ok) setAdminData(await res.json());
+  const fetchAdminPhotos = async () => {
+    const res = await fetch('/api/admin?type=photos');
+    if (res.ok) {
+      const json = await res.json();
+      setAdminPhotos(json.photos);
+    }
   };
 
-  const toggleViewMode = () => {
-    const newMode = !isAdminView;
-    setIsAdminView(newMode);
-    setActiveTab(newMode ? 'photo_manage' : 'points');
-    if (newMode) fetchAdminData();
+  const fetchAdminUsers = async () => {
+    const res = await fetch('/api/admin?type=users');
+    if (res.ok) {
+      const json = await res.json();
+      setAdminUsers(json.users);
+    }
   };
 
-  // --- 用戶視圖 ---
-  const UserPointsTab = () => (
-    <div className="animate-fade-in">
-      <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 mb-6 text-center">
-        <p className="text-slate-400 text-sm font-medium mb-2">剩餘列印額度</p>
-        <h2 className="text-7xl font-black text-slate-800">{data.points}</h2>
-      </div>
-    </div>
-  );
+  const handleUpdatePoints = async (uid, amount) => {
+    const res = await fetch('/api/admin', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'update_points', userId: uid, amount })
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (scannedUser) setScannedUser({ ...scannedUser, points: json.newPoints });
+      fetchAdminUsers(); // 同步更新用戶清單
+    }
+  };
 
-  const UserPhotosTab = () => (
-    <div className="animate-fade-in space-y-4 pb-20">
-      <h2 className="text-xl font-bold text-slate-800 mb-4">我的相簿狀態</h2>
-      {data.logs.length > 0 ? data.logs.map((log) => (
-        <div key={log.id} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <img 
-              src={`https://drive.google.com/thumbnail?id=${log.driveFileId}&sz=w200`} 
-              className="w-16 h-16 rounded-xl object-cover bg-slate-50"
-              alt="thumb"
-            />
-            <div>
-              <p className="text-sm font-bold text-slate-700">照片紀錄</p>
-              <p className="text-xs text-slate-400">{new Date(log.createdAt).toLocaleString('zh-TW')}</p>
-            </div>
-          </div>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold ${log.status === '已完成' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
-            {log.status}
-          </span>
-        </div>
-      )) : <p className="text-center text-slate-400 py-10">尚無照片</p>}
-    </div>
-  );
+  // ==========================================
+  // 👑 管理員分頁組件
+  // ==========================================
 
-  const UserMemberTab = () => (
-    <div className="animate-fade-in text-center">
-      <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
-        <img src={user?.pictureUrl} className="w-20 h-20 rounded-full mx-auto mb-4 border-2 border-slate-50" alt="p" />
-        <h2 className="text-xl font-bold text-slate-800">{user?.displayName}</h2>
-        <div className="bg-slate-50 p-6 rounded-2xl border border-dashed border-slate-200 mt-6 flex justify-center">
-          {user?.userId && <QRCode value={user.userId} size={140} level="H" />}
-        </div>
-      </div>
-    </div>
-  );
-
-  // --- 管理員視圖 ---
-  const AdminPhotoTab = () => (
-    <div className="animate-fade-in pb-20">
-      <h2 className="text-xl font-bold text-slate-800 mb-4 tracking-tight">待列印清單 ({adminData.pendingPhotos.length})</h2>
-      <div className="space-y-6">
-        {adminData.pendingPhotos.map((photo) => (
-          <div key={photo.id} className="bg-white rounded-2xl p-4 shadow-md border border-slate-100">
-            <img src={`https://drive.google.com/thumbnail?id=${photo.driveFileId}&sz=w600`} className="w-full h-56 object-contain rounded-xl mb-4 bg-black" />
+  // 1. 列印區
+  const AdminPrintingTab = () => (
+    <div className="animate-fade-in space-y-4 pb-24">
+      <h2 className="text-xl font-bold text-slate-800">🖨️ 待列印清單 ({adminPhotos.length})</h2>
+      {adminPhotos.map(photo => (
+        <div key={photo.id} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+          <img src={`https://drive.google.com/thumbnail?id=${photo.driveFileId}&sz=w600`} className="w-full h-48 object-contain bg-black rounded-lg mb-4" />
+          <div className="flex justify-between items-center">
+            <p className="text-xs text-slate-400">ID: {photo.id.slice(-5)}</p>
             <button 
               onClick={async () => {
-                const res = await fetch('/api/admin', {
-                  method: 'POST',
-                  body: JSON.stringify({ action: 'complete_photo', photoId: photo.id })
-                });
-                if (res.ok) fetchAdminData();
+                await fetch('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'delete_photo', photoId: photo.id })});
+                fetchAdminPhotos();
               }}
-              className="w-full bg-emerald-500 text-white font-bold py-3 rounded-xl"
+              className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold"
             >
-              ✅ 標記為已列印
+              完成並刪除
             </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  // 2. 用戶區
+  const AdminUsersTab = () => (
+    <div className="animate-fade-in space-y-2 pb-24">
+      <h2 className="text-xl font-bold text-slate-800 mb-4">👥 所有用戶 ({adminUsers.length})</h2>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        {adminUsers.map(u => (
+          <div key={u.id} className="flex justify-between items-center p-4 border-b border-slate-50 last:border-0">
+            <span className="text-sm font-medium text-slate-700 truncate mr-4">{u.id}</span>
+            <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-bold">{u.points} 點</span>
           </div>
         ))}
       </div>
     </div>
   );
 
-  const AdminUserTab = () => (
-    <div className="animate-fade-in">
-      <div className="bg-white rounded-3xl p-10 shadow-sm border border-slate-100 text-center">
-        <div className="text-5xl mb-4">📸</div>
+  // 3. 會員掃描區
+  const AdminMemberTab = () => (
+    <div className="animate-fade-in text-center space-y-6">
+      <h2 className="text-xl font-bold text-slate-800">🔍 會員掃描與點數</h2>
+      {!scannedUser ? (
         <button 
           onClick={async () => {
-            try {
-              const res = await liff.scanCodeV2();
-              if (confirm(`確定扣除用戶 ${res.value.slice(0,5)} 1點？`)) {
-                const apiRes = await fetch('/api/admin', {
-                  method: 'POST',
-                  body: JSON.stringify({ action: 'deduct', userId: res.value })
-                });
-                const result = await apiRes.json();
-                alert(result.success ? `扣點成功！剩餘：${result.newPoints}` : "失敗");
-              }
-            } catch (e) { console.log("Scan Cancelled"); }
+            const res = await liff.scanCodeV2();
+            const userRes = await fetch(`/api/admin?type=member&userId=${res.value}`);
+            if (userRes.ok) setScannedUser(await userRes.json());
           }}
-          className="w-full bg-blue-600 text-white font-bold py-5 rounded-2xl text-lg shadow-lg shadow-blue-200"
+          className="w-full bg-blue-600 text-white py-8 rounded-3xl text-xl font-black shadow-lg"
         >
-          開啟掃瞄器扣點
+          點擊開啟掃描
         </button>
-      </div>
+      ) : (
+        <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+          <p className="text-xs text-slate-400 mb-2">已選取用戶 ID</p>
+          <p className="text-sm font-mono mb-6 break-all bg-slate-50 p-2 rounded">{scannedUser.userId}</p>
+          <div className="text-6xl font-black text-slate-800 mb-8">{scannedUser.points}</div>
+          <div className="flex gap-4">
+            <button onClick={() => handleUpdatePoints(scannedUser.userId, 1)} className="flex-1 bg-emerald-500 text-white py-4 rounded-xl font-bold">+1 點</button>
+            <button onClick={() => handleUpdatePoints(scannedUser.userId, -1)} className="flex-1 bg-rose-500 text-white py-4 rounded-xl font-bold">-1 點</button>
+          </div>
+          <button onClick={() => setScannedUser(null)} className="mt-8 text-slate-400 text-sm underline">重新掃描</button>
+        </div>
+      )}
     </div>
   );
 
+  // --- 渲染判斷 ---
+  const renderContent = () => {
+    if (!isAdminView) {
+      if (activeTab === 'points') return (
+        <div className="text-center">
+          <div className="bg-white rounded-3xl p-10 shadow-sm border border-slate-100 mb-6">
+            <p className="text-slate-400 text-sm mb-2">剩餘列印點數</p>
+            <div className="text-8xl font-black text-slate-800">{data.points}</div>
+          </div>
+        </div>
+      );
+      if (activeTab === 'member') return (
+        <div className="bg-white rounded-3xl p-8 text-center border border-slate-100">
+          <p className="text-sm text-slate-400 mb-4 font-medium">個人數位通行證</p>
+          <div className="flex justify-center bg-white p-4 rounded-xl shadow-sm border border-slate-50 w-fit mx-auto">
+            {user?.userId && <QRCode value={user.userId} size={180} />}
+          </div>
+          <p className="text-[10px] text-slate-300 mt-4 font-mono">{user?.userId}</p>
+        </div>
+      );
+    } else {
+      if (activeTab === 'admin_print') return <AdminPrintingTab />;
+      if (activeTab === 'admin_users') return <AdminUsersTab />;
+      if (activeTab === 'admin_member') return <AdminMemberTab />;
+    }
+    return null;
+  };
+
   const BottomNav = () => {
     const tabs = isAdminView ? [
-      { id: 'photo_manage', label: '管理', icon: '🖨️' },
-      { id: 'user_manage', label: '用戶', icon: '👥' }
+      { id: 'admin_print', icon: '🖨️', label: '列印', action: fetchAdminPhotos },
+      { id: 'admin_users', icon: '👥', label: '用戶', action: fetchAdminUsers },
+      { id: 'admin_member', icon: '🔍', label: '會員', action: () => {} }
     ] : [
-      { id: 'points', label: '點數', icon: '🎫' },
-      { id: 'photos', label: '相簿', icon: '🖼️' },
-      { id: 'member', label: '會員', icon: '👤' }
+      { id: 'points', icon: '🎫', label: '點數' },
+      { id: 'member', icon: '👤', label: '會員' }
     ];
 
     return (
       <div className="fixed bottom-0 left-0 w-full bg-white/90 backdrop-blur-md border-t border-slate-100 pb-8 pt-2 px-10 flex justify-between items-center z-50">
-        {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center p-2 ${activeTab === tab.id ? 'text-blue-600' : 'text-slate-300'}`}>
-            <span className="text-2xl mb-1">{tab.icon}</span>
-            <span className="text-[10px] font-bold">{tab.label}</span>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => { setActiveTab(t.id); if(t.action) t.action(); }} className={`flex flex-col items-center ${activeTab === t.id ? 'text-blue-600' : 'text-slate-300'}`}>
+            <span className="text-2xl mb-1">{t.icon}</span>
+            <span className="text-[10px] font-bold">{t.label}</span>
           </button>
         ))}
       </div>
@@ -182,20 +192,16 @@ export default function LiffPage() {
   if (loading) return <div className="min-h-screen bg-[#F5F5F7] flex items-center justify-center text-slate-400 font-bold">LOADING...</div>;
 
   return (
-    <div className="min-h-screen bg-[#F5F5F7] font-sans pb-32 pt-10 px-6">
+    <div className="min-h-screen bg-[#F5F5F7] p-6 pb-32">
       <header className="mb-8 flex justify-between items-center">
-        <h1 className="text-2xl font-black text-slate-800 tracking-tighter">{isAdminView ? '👑 管理中心' : '畢旅印相館'}</h1>
-        {isSuperAdmin && (
-          <button onClick={toggleViewMode} className="text-xs bg-slate-200 text-slate-600 px-4 py-2 rounded-full font-bold">
-            {isAdminView ? '看我的點數' : '切換管理模式'}
+        <h1 className="text-2xl font-black text-slate-800">{isAdminView ? '👑 管理控制台' : '📸 畢旅印相機'}</h1>
+        {user?.userId === ADMIN_ID && (
+          <button onClick={() => setIsAdminView(!isAdminView)} className="bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full text-xs font-bold">
+            切換模式
           </button>
         )}
       </header>
-      {!isAdminView && activeTab === 'points' && <UserPointsTab />}
-      {!isAdminView && activeTab === 'photos' && <UserPhotosTab />}
-      {!isAdminView && activeTab === 'member' && <UserMemberTab />}
-      {isAdminView && activeTab === 'photo_manage' && <AdminPhotoTab />}
-      {isAdminView && activeTab === 'user_manage' && <AdminUserTab />}
+      {renderContent()}
       <BottomNav />
     </div>
   );
