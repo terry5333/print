@@ -34,7 +34,7 @@ export default function LiffPage() {
     setLoading(false);
   };
 
-  if (loading) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">載入中...</div>;
+  if (loading) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">系統載入中...</div>;
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-6 font-sans">
@@ -48,7 +48,7 @@ export default function LiffPage() {
 
       <div className="bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl p-8 shadow-xl shadow-cyan-500/20 mb-8 relative overflow-hidden">
         <div className="relative z-10">
-          <p className="text-cyan-100 text-sm uppercase tracking-widest font-semibold">剩餘列印點數</p>
+          <p className="text-cyan-100 text-sm uppercase tracking-widest font-semibold">剩餘列印次數</p>
           <h2 className="text-6xl font-black mt-2">{data.points}</h2>
         </div>
         <div className="absolute -right-4 -bottom-4 text-white/20 text-9xl font-bold italic">PASS</div>
@@ -63,7 +63,7 @@ export default function LiffPage() {
           {data.logs.length > 0 ? data.logs.map((log, i) => (
             <div key={i} className="flex justify-between items-center border-b border-slate-700 pb-3">
               <div>
-                <p className="text-sm text-slate-300">照片 #{log.id.slice(-4)}</p>
+                <p className="text-sm text-slate-300">照片紀錄</p>
                 <p className="text-xs text-slate-500">{new Date(log.createdAt).toLocaleString('zh-TW')}</p>
               </div>
               <span className={`px-3 py-1 rounded-full text-xs font-bold ${
