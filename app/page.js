@@ -10,12 +10,13 @@ export default function LiffPage() {
   const [loading, setLoading] = useState(true);
 
   // 資料狀態
-  const [data, setData] = useState({ points: 0, logs: [] }); // 用戶本人資料
-  const [adminPhotos, setAdminPhotos] = useState([]);      // 管理員：列印區
-  const [adminUsers, setAdminUsers] = useState([]);        // 管理員：用戶區
-  const [scannedUser, setScannedUser] = useState(null);    // 管理員：會員掃描結果
+  const [data, setData] = useState({ points: 0, logs: [] });
+  const [adminPhotos, setAdminPhotos] = useState([]);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [scannedUser, setScannedUser] = useState(null);
 
-  const ADMIN_ID = "你的_LINE_USER_ID"; // ⚠️ 記得換成你的 ID
+  // 👑 最高管理員 ID 
+  const ADMIN_ID = "U504c5a2721f2c5345b538137d3e0f66d"; 
 
   useEffect(() => {
     liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID }).then(async () => {
@@ -31,7 +32,6 @@ export default function LiffPage() {
     });
   }, []);
 
-  // --- API 請求函式 ---
   const fetchUserData = async (uid) => {
     const res = await fetch(`/api/user?userId=${uid}`);
     if (res.ok) setData(await res.json());
@@ -40,53 +40,122 @@ export default function LiffPage() {
 
   const fetchAdminPhotos = async () => {
     const res = await fetch('/api/admin?type=photos');
-    if (res.ok) {
-      const json = await res.json();
-      setAdminPhotos(json.photos);
-    }
+    if (res.ok) setAdminPhotos((await res.json()).photos);
   };
 
   const fetchAdminUsers = async () => {
     const res = await fetch('/api/admin?type=users');
-    if (res.ok) {
-      const json = await res.json();
-      setAdminUsers(json.users);
-    }
-  };
-
-  const handleUpdatePoints = async (uid, amount) => {
-    const res = await fetch('/api/admin', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'update_points', userId: uid, amount })
-    });
-    if (res.ok) {
-      const json = await res.json();
-      if (scannedUser) setScannedUser({ ...scannedUser, points: json.newPoints });
-      fetchAdminUsers(); // 同步更新用戶清單
-    }
+    if (res.ok) setAdminUsers((await res.json()).users);
   };
 
   // ==========================================
-  // 👑 管理員分頁組件
+  // 👥 用戶分頁組件 (User Views)
   // ==========================================
 
-  // 1. 列印區
+  // 1. 點數區
+  const UserPointsTab = () => (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[2.5rem] p-10 text-white shadow-2xl shadow-blue-200 relative overflow-hidden">
+        <div className="relative z-10">
+          <p className="text-blue-100 text-sm font-bold uppercase tracking-widest mb-2">Available Points</p>
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-8xl font-black">{data.points}</h2>
+            <span className="text-xl font-bold opacity-80">pts</span>
+          </div>
+        </div>
+        <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
+      </div>
+      
+      <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
+        <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+          <span className="w-1.5 h-6 bg-blue-500 rounded-full"></span>
+          快速說明
+        </h3>
+        <p className="text-slate-500 text-sm leading-relaxed">
+          在聊天室傳送照片即可自動列印。每張照片消耗 1 點。若點數不足，請向資訊組長領取。
+        </p>
+      </div>
+    </div>
+  );
+
+  // 2. 照片與狀態區
+  const UserPhotosTab = () => (
+    <div className="space-y-4 pb-24 animate-in fade-in duration-500">
+      <h2 className="text-2xl font-black text-slate-800 px-1">傳送紀錄</h2>
+      {data.logs.length > 0 ? data.logs.map((log) => (
+        <div key={log.id} className="bg-white rounded-2xl p-4 flex items-center gap-4 border border-slate-100 shadow-sm active:scale-95 transition-transform">
+          <img 
+            src={`https://drive.google.com/thumbnail?id=${log.driveFileId}&sz=w200`} 
+            className="w-20 h-20 rounded-2xl object-cover bg-slate-50"
+            alt="print"
+          />
+          <div className="flex-1">
+            <div className="flex justify-between items-start mb-1">
+              <span className="text-xs font-bold text-slate-400">#{log.id.slice(-4)}</span>
+              <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-tighter ${
+                log.status === '已完成' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
+              }`}>
+                {log.status}
+              </span>
+            </div>
+            <p className="text-slate-700 font-bold text-sm">照片上傳成功</p>
+            <p className="text-slate-400 text-[10px] mt-1">{new Date(log.createdAt).toLocaleString('zh-TW')}</p>
+          </div>
+        </div>
+      )) : (
+        <div className="py-20 text-center">
+          <div className="text-6xl mb-4 opacity-20">📸</div>
+          <p className="text-slate-400 font-medium">尚未上傳任何照片</p>
+        </div>
+      )}
+    </div>
+  );
+
+  // 3. 會員 QR 區
+  const UserMemberTab = () => (
+    <div className="text-center space-y-6 animate-in zoom-in-95 duration-500">
+      <div className="bg-white rounded-[3rem] p-10 shadow-xl border border-slate-50">
+        <div className="relative inline-block mb-6">
+          <img src={user?.pictureUrl} className="w-24 h-24 rounded-full border-4 border-white shadow-lg" alt="avatar" />
+          <div className="absolute bottom-1 right-1 w-6 h-6 bg-emerald-500 border-4 border-white rounded-full"></div>
+        </div>
+        <h2 className="text-2xl font-black text-slate-800">{user?.displayName}</h2>
+        <p className="text-slate-400 text-xs font-bold tracking-widest mt-1 uppercase">Passport Active</p>
+        
+        <div className="mt-10 p-6 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200 inline-block">
+          {user?.userId && <QRCode value={user.userId} size={180} level="H" fgColor="#1e293b" />}
+        </div>
+        <p className="text-[10px] font-mono text-slate-300 mt-6 break-all opacity-50 px-10">{user?.userId}</p>
+      </div>
+    </div>
+  );
+
+  // ==========================================
+  // 👑 管理員分頁組件 (Admin Views)
+  // ==========================================
+
   const AdminPrintingTab = () => (
-    <div className="animate-fade-in space-y-4 pb-24">
-      <h2 className="text-xl font-bold text-slate-800">🖨️ 待列印清單 ({adminPhotos.length})</h2>
+    <div className="space-y-6 pb-32">
+      <div className="flex justify-between items-end px-1">
+        <h2 className="text-2xl font-black text-slate-800">待列印佇列</h2>
+        <span className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full">{adminPhotos.length} 張</span>
+      </div>
       {adminPhotos.map(photo => (
-        <div key={photo.id} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-          <img src={`https://drive.google.com/thumbnail?id=${photo.driveFileId}&sz=w600`} className="w-full h-48 object-contain bg-black rounded-lg mb-4" />
-          <div className="flex justify-between items-center">
-            <p className="text-xs text-slate-400">ID: {photo.id.slice(-5)}</p>
+        <div key={photo.id} className="bg-white rounded-[2rem] overflow-hidden shadow-md border border-slate-100">
+          <img src={`https://drive.google.com/thumbnail?id=${photo.driveFileId}&sz=w800`} className="w-full h-64 object-contain bg-black" />
+          <div className="p-5 flex justify-between items-center">
+            <div>
+              <p className="text-xs font-bold text-slate-400">UserID: {photo.userId.slice(0, 8)}...</p>
+              <p className="text-xs text-slate-300 mt-1">{new Date(photo.createdAt).toLocaleTimeString()}</p>
+            </div>
             <button 
               onClick={async () => {
                 await fetch('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'delete_photo', photoId: photo.id })});
                 fetchAdminPhotos();
               }}
-              className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold"
+              className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-sm font-black active:scale-90 transition-transform"
             >
-              完成並刪除
+              完成列印
             </button>
           </div>
         </div>
@@ -94,25 +163,29 @@ export default function LiffPage() {
     </div>
   );
 
-  // 2. 用戶區
   const AdminUsersTab = () => (
-    <div className="animate-fade-in space-y-2 pb-24">
-      <h2 className="text-xl font-bold text-slate-800 mb-4">👥 所有用戶 ({adminUsers.length})</h2>
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+    <div className="space-y-4 pb-24">
+      <h2 className="text-2xl font-black text-slate-800 px-1">用戶點數總覽</h2>
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
         {adminUsers.map(u => (
-          <div key={u.id} className="flex justify-between items-center p-4 border-b border-slate-50 last:border-0">
-            <span className="text-sm font-medium text-slate-700 truncate mr-4">{u.id}</span>
-            <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-bold">{u.points} 點</span>
+          <div key={u.id} className="flex justify-between items-center p-5 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-lg">👤</div>
+              <span className="text-sm font-bold text-slate-700 truncate w-32">{u.id.slice(0, 15)}...</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-black text-slate-900">{u.points}</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase">pts</span>
+            </div>
           </div>
         ))}
       </div>
     </div>
   );
 
-  // 3. 會員掃描區
   const AdminMemberTab = () => (
-    <div className="animate-fade-in text-center space-y-6">
-      <h2 className="text-xl font-bold text-slate-800">🔍 會員掃描與點數</h2>
+    <div className="space-y-6 text-center">
+      <h2 className="text-2xl font-black text-slate-800">快速核點器</h2>
       {!scannedUser ? (
         <button 
           onClick={async () => {
@@ -120,88 +193,119 @@ export default function LiffPage() {
             const userRes = await fetch(`/api/admin?type=member&userId=${res.value}`);
             if (userRes.ok) setScannedUser(await userRes.json());
           }}
-          className="w-full bg-blue-600 text-white py-8 rounded-3xl text-xl font-black shadow-lg"
+          className="w-full bg-indigo-600 text-white py-12 rounded-[3rem] text-2xl font-black shadow-2xl shadow-indigo-200 active:scale-95 transition-all"
         >
-          點擊開啟掃描
+          📸 點擊啟動掃描
         </button>
       ) : (
-        <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
-          <p className="text-xs text-slate-400 mb-2">已選取用戶 ID</p>
-          <p className="text-sm font-mono mb-6 break-all bg-slate-50 p-2 rounded">{scannedUser.userId}</p>
-          <div className="text-6xl font-black text-slate-800 mb-8">{scannedUser.points}</div>
-          <div className="flex gap-4">
-            <button onClick={() => handleUpdatePoints(scannedUser.userId, 1)} className="flex-1 bg-emerald-500 text-white py-4 rounded-xl font-bold">+1 點</button>
-            <button onClick={() => handleUpdatePoints(scannedUser.userId, -1)} className="flex-1 bg-rose-500 text-white py-4 rounded-xl font-bold">-1 點</button>
+        <div className="bg-white rounded-[3rem] p-10 shadow-xl border border-slate-50 animate-in zoom-in-95">
+          <p className="text-xs font-bold text-slate-300 tracking-widest uppercase mb-2">Scanned ID</p>
+          <p className="text-xs font-mono mb-8 break-all opacity-50 px-6">{scannedUser.userId}</p>
+          <div className="text-8xl font-black text-slate-800 mb-10">{scannedUser.points}</div>
+          <div className="grid grid-cols-2 gap-4">
+            <button 
+              onClick={async () => {
+                const res = await fetch('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'update_points', userId: scannedUser.userId, amount: 1 })});
+                const json = await res.json();
+                setScannedUser({ ...scannedUser, points: json.newPoints });
+                fetchAdminUsers();
+              }}
+              className="bg-emerald-500 text-white py-5 rounded-2xl font-black text-xl shadow-lg shadow-emerald-100 active:scale-95 transition-all"
+            >
+              + 1
+            </button>
+            <button 
+              onClick={async () => {
+                const res = await fetch('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'update_points', userId: scannedUser.userId, amount: -1 })});
+                const json = await res.json();
+                setScannedUser({ ...scannedUser, points: json.newPoints });
+                fetchAdminUsers();
+              }}
+              className="bg-rose-500 text-white py-5 rounded-2xl font-black text-xl shadow-lg shadow-rose-100 active:scale-95 transition-all"
+            >
+              - 1
+            </button>
           </div>
-          <button onClick={() => setScannedUser(null)} className="mt-8 text-slate-400 text-sm underline">重新掃描</button>
+          <button onClick={() => setScannedUser(null)} className="mt-10 text-slate-400 text-sm font-bold underline">結束並重新掃描</button>
         </div>
       )}
     </div>
   );
 
-  // --- 渲染判斷 ---
-  const renderContent = () => {
-    if (!isAdminView) {
-      if (activeTab === 'points') return (
-        <div className="text-center">
-          <div className="bg-white rounded-3xl p-10 shadow-sm border border-slate-100 mb-6">
-            <p className="text-slate-400 text-sm mb-2">剩餘列印點數</p>
-            <div className="text-8xl font-black text-slate-800">{data.points}</div>
-          </div>
-        </div>
-      );
-      if (activeTab === 'member') return (
-        <div className="bg-white rounded-3xl p-8 text-center border border-slate-100">
-          <p className="text-sm text-slate-400 mb-4 font-medium">個人數位通行證</p>
-          <div className="flex justify-center bg-white p-4 rounded-xl shadow-sm border border-slate-50 w-fit mx-auto">
-            {user?.userId && <QRCode value={user.userId} size={180} />}
-          </div>
-          <p className="text-[10px] text-slate-300 mt-4 font-mono">{user?.userId}</p>
-        </div>
-      );
-    } else {
-      if (activeTab === 'admin_print') return <AdminPrintingTab />;
-      if (activeTab === 'admin_users') return <AdminUsersTab />;
-      if (activeTab === 'admin_member') return <AdminMemberTab />;
-    }
-    return null;
-  };
-
+  // ==========================================
+  // 🧭 底部導覽列 (Bottom Navigation)
+  // ==========================================
   const BottomNav = () => {
     const tabs = isAdminView ? [
       { id: 'admin_print', icon: '🖨️', label: '列印', action: fetchAdminPhotos },
       { id: 'admin_users', icon: '👥', label: '用戶', action: fetchAdminUsers },
-      { id: 'admin_member', icon: '🔍', label: '會員', action: () => {} }
+      { id: 'admin_member', icon: '🔍', label: '掃碼', action: () => {} }
     ] : [
-      { id: 'points', icon: '🎫', label: '點數' },
-      { id: 'member', icon: '👤', label: '會員' }
+      { id: 'points', icon: '🎫', label: '點數', action: () => fetchData(user?.userId) },
+      { id: 'photos', icon: '🖼️', label: '紀錄', action: () => fetchData(user?.userId) },
+      { id: 'member', icon: '👤', label: '會員', action: () => {} }
     ];
 
     return (
-      <div className="fixed bottom-0 left-0 w-full bg-white/90 backdrop-blur-md border-t border-slate-100 pb-8 pt-2 px-10 flex justify-between items-center z-50">
+      <div className="fixed bottom-6 left-6 right-6 h-20 bg-white/80 backdrop-blur-2xl rounded-[2rem] border border-white/50 shadow-2xl flex justify-around items-center px-4 z-50">
         {tabs.map(t => (
-          <button key={t.id} onClick={() => { setActiveTab(t.id); if(t.action) t.action(); }} className={`flex flex-col items-center ${activeTab === t.id ? 'text-blue-600' : 'text-slate-300'}`}>
+          <button 
+            key={t.id} 
+            onClick={() => { setActiveTab(t.id); if(t.action) t.action(); }} 
+            className={`flex flex-col items-center justify-center w-16 h-16 rounded-2xl transition-all ${
+              activeTab === t.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-slate-300 hover:text-slate-400'
+            }`}
+          >
             <span className="text-2xl mb-1">{t.icon}</span>
-            <span className="text-[10px] font-bold">{t.label}</span>
+            <span className="text-[10px] font-black uppercase tracking-tighter">{t.label}</span>
           </button>
         ))}
       </div>
     );
   };
 
-  if (loading) return <div className="min-h-screen bg-[#F5F5F7] flex items-center justify-center text-slate-400 font-bold">LOADING...</div>;
+  if (loading) return (
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center">
+      <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+      <p className="text-slate-400 font-black tracking-widest text-xs uppercase">Initializing System</p>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-[#F5F5F7] p-6 pb-32">
-      <header className="mb-8 flex justify-between items-center">
-        <h1 className="text-2xl font-black text-slate-800">{isAdminView ? '👑 管理控制台' : '📸 畢旅印相機'}</h1>
+    <div className="min-h-screen bg-[#F8FAFC] p-6 pb-36 font-sans selection:bg-blue-100">
+      <header className="mb-10 flex justify-between items-center px-1">
+        <div>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tighter">
+            {isAdminView ? 'Admin Console' : 'Photo Print'}
+          </h1>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-1">Grad Trip 2026</p>
+        </div>
         {user?.userId === ADMIN_ID && (
-          <button onClick={() => setIsAdminView(!isAdminView)} className="bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full text-xs font-bold">
-            切換模式
+          <button 
+            onClick={() => setIsAdminView(!isAdminView)} 
+            className="w-10 h-10 bg-white border border-slate-100 rounded-full flex items-center justify-center shadow-sm active:scale-90 transition-transform"
+          >
+            {isAdminView ? '🏠' : '🛠️'}
           </button>
         )}
       </header>
-      {renderContent()}
+
+      <main>
+        {!isAdminView ? (
+          <>
+            {activeTab === 'points' && <UserPointsTab />}
+            {activeTab === 'photos' && <UserPhotosTab />}
+            {activeTab === 'member' && <UserMemberTab />}
+          </>
+        ) : (
+          <>
+            {activeTab === 'admin_print' && <AdminPrintingTab />}
+            {activeTab === 'admin_users' && <AdminUsersTab />}
+            {activeTab === 'admin_member' && <AdminMemberTab />}
+          </>
+        )}
+      </main>
+
       <BottomNav />
     </div>
   );
