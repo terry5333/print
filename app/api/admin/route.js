@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
-  const type = searchParams.get('type'); // 辨別是要抓 photos, users 還是單一 member
+  const type = searchParams.get('type'); 
 
   try {
     // 1. 列印區：抓取所有待列印照片
