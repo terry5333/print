@@ -1,4 +1,4 @@
-import './globals.css'; // 確保你有這個檔案，裡面只要寫 @tailwind base; @tailwind components; @tailwind utilities;
+import './globals.css';
 
 export const metadata = {
   title: '畢旅列印通行證',
