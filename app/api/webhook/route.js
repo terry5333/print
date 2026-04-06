@@ -9,78 +9,146 @@ export async function POST(req) {
 
     if (!events || events.length === 0) return Response.json({ status: 'ok' }, { status: 200 });
 
-    // 🌟 改變 1：使用 Promise.all 同時處理 LINE 傳來的多張照片事件
+    // 👑 你的 LINE ID (接收圖文訊息用)
+    const ADMIN_ID = "U504c5a2721f2c5345b538137d3e0f66d"; 
+
     await Promise.all(events.map(async (event) => {
-      // 略過驗證用的 Dummy Token
-      if (event.replyToken === '00000000000000000000000000000000' || event.replyToken === 'ffffffffffffffffffffffffffffffff') {
+      if (event.replyToken === '00000000000000000000000000000000' || event.replyToken === 'ffffffffffffffffffffffffffffffff') return;
+
+      // ==========================================
+      // 🌟 動作一：處理管理員在 LINE 點擊「完成列印」按鈕
+      // ==========================================
+      if (event.type === 'postback') {
+        const data = new URLSearchParams(event.postback.data);
+        if (data.get('action') === 'complete_photo') {
+          const photoId = data.get('photoId');
+          const photoDoc = await db.collection('photos').doc(photoId).get();
+          
+          if (photoDoc.exists) {
+            const { userId, driveFileId } = photoDoc.data();
+            await db.collection('photos').doc(photoId).delete(); // 刪除佇列
+            
+            // 發送精美圖文訊息給學生
+            await pushMessage(userId, [
+              { type: 'text', text: '✅ 你的照片已經成功印出來囉！快來找資訊組長拿吧！' },
+              {
+                type: 'flex', altText: '照片列印完成',
+                contents: {
+                  type: 'bubble',
+                  hero: { type: 'image', url: `https://drive.google.com/thumbnail?id=${driveFileId}&sz=w800`, size: 'full', aspectRatio: '1:1', aspectMode: 'cover' }
+                }
+              }
+            ]);
+            // 回覆管理員
+            await replyMessage(event.replyToken, '✅ 已將此照片標記為完成，並發送縮圖通知該學生！');
+          } else {
+            await replyMessage(event.replyToken, '❌ 找不到此照片，可能已經在網頁版被處理過了。');
+          }
+        }
         return;
       }
 
+      // ==========================================
+      // 🌟 動作二：處理學生上傳照片
+      // ==========================================
       if (event.type === 'message' && event.message.type === 'image') {
         const userId = event.source.userId;
+        
+        // 1. 讀取系統設定 (暫停與底片)
+        const sysRef = db.collection('system').doc('settings');
         const userRef = db.collection('users').doc(userId);
 
-        // 🌟 改變 2：使用 Firestore Transaction (交易鎖) 確保扣點排隊進行，解決重複點數的問題
         const txResult = await db.runTransaction(async (t) => {
-          const userDoc = await t.get(userRef);
-          const points = userDoc.exists ? userDoc.data().points : 3;
+          const sDoc = await t.get(sysRef);
+          const uDoc = await t.get(userRef);
+          
+          const sysData = sDoc.exists ? sDoc.data() : { isPaused: false, filmCount: 100 };
+          const points = uDoc.exists ? uDoc.data().points : 3;
+          
+          if (sysData.isPaused) return { allowed: false, reason: 'paused' };
+          if (sysData.filmCount <= 0) return { allowed: false, reason: 'no_film' };
+          if (points <= 0) return { allowed: false, reason: 'no_points' };
 
-          if (points <= 0) {
-            return { allowed: false };
-          }
-
-          const newPoints = points - 1;
-          t.set(userRef, { points: newPoints }, { merge: true });
-          return { allowed: true, newPoints };
+          // 同時扣除點數與底片
+          t.set(userRef, { points: points - 1 }, { merge: true });
+          t.set(sysRef, { filmCount: sysData.filmCount - 1 }, { merge: true });
+          
+          return { allowed: true, newPoints: points - 1, userName: uDoc.exists ? uDoc.data().displayName : '未知用戶' };
         });
 
-        // 如果點數不足，直接擋下並通知
+        // 阻擋訊息回覆
         if (!txResult.allowed) {
-          await sendLineMessage(event.replyToken, '今天的點數用完囉！請等待組長補充或明天再來📸');
+          if (txResult.reason === 'paused') await replyMessage(event.replyToken, '⚠️ 系統目前「暫停接收」列印請求喔！請稍後再試。');
+          if (txResult.reason === 'no_film') await replyMessage(event.replyToken, '⚠️ 哎呀！相印機的「底片已經用完」囉！請呼叫組長補充底片。');
+          if (txResult.reason === 'no_points') await replyMessage(event.replyToken, '今天的點數用完囉！請等待組長補充或明天再來📸');
           return;
         }
 
-        // 🌟 改變 3：確定扣點成功後，才開始耗時的 Google Drive 上傳動作
+        // 2. 上傳 Google Drive 與寫入資料庫
         try {
-          const res = await fetch(`https://api-data.line.me/v2/bot/message/${event.message.id}/content`, {
-            headers: { Authorization: `Bearer ${process.env.LINE_ACCESS_TOKEN}` }
-          });
+          const res = await fetch(`https://api-data.line.me/v2/bot/message/${event.message.id}/content`, { headers: { Authorization: `Bearer ${process.env.LINE_ACCESS_TOKEN}` } });
           const buffer = Buffer.from(await res.arrayBuffer());
-          const fileName = `列印_${userId}_${Date.now()}.jpg`;
-          const driveFile = await uploadToDrive(buffer, fileName);
+          const driveFile = await uploadToDrive(buffer, `列印_${userId}_${Date.now()}.jpg`);
 
-          // 照片與日誌寫入
+          const newPhotoRef = db.collection('photos').doc();
           const batch = db.batch();
-          batch.set(db.collection('photos').doc(), { userId, driveFileId: driveFile.id, status: '待列印', createdAt: new Date() });
+          batch.set(newPhotoRef, { userId, driveFileId: driveFile.id, status: '待列印', createdAt: new Date() });
           batch.set(db.collection('pointLogs').doc(), { userId, action: '上傳照片扣點', amount: 1, balance: txResult.newPoints, createdAt: new Date() });
           await batch.commit();
 
-          await sendLineMessage(event.replyToken, `✅ 照片已存入雲端！扣除 1 點，剩餘 ${txResult.newPoints} 點。\n請點開選單查看進度！`);
+          await replyMessage(event.replyToken, `✅ 照片已存入雲端！扣除 1 點，剩餘 ${txResult.newPoints} 點。`);
+
+          // 🌟 3. 發送 Flex Message 給管理員
+          await pushMessage(ADMIN_ID, [{
+            type: 'flex', altText: '📸 新的列印任務',
+            contents: {
+              type: 'bubble',
+              hero: { type: 'image', url: `https://drive.google.com/thumbnail?id=${driveFile.id}&sz=w800`, size: 'full', aspectRatio: '4:3', aspectMode: 'cover' },
+              body: {
+                type: 'box', layout: 'vertical',
+                contents: [
+                  { type: 'text', text: '📸 新的列印任務', weight: 'bold', size: 'xl' },
+                  { type: 'text', text: `上傳者: ${txResult.userName}`, size: 'sm', color: '#666666', margin: 'md' }
+                ]
+              },
+              footer: {
+                type: 'box', layout: 'vertical', spacing: 'sm',
+                contents: [{
+                  type: 'button', style: 'primary', color: '#10b981',
+                  action: { type: 'postback', label: '✅ 完成列印', data: `action=complete_photo&photoId=${newPhotoRef.id}` }
+                }]
+              }
+            }
+          }]);
+
         } catch (err) {
           console.error("Drive Upload Error:", err);
-          // 🌟 改變 4：如果上傳雲端失敗，啟動「退款機制」把點數還給同學
+          // 退還點數與底片
           await db.runTransaction(async (t) => {
-            const doc = await t.get(userRef);
-            const current = doc.exists ? doc.data().points : 0;
-            t.set(userRef, { points: current + 1 }, { merge: true });
+            const u = await t.get(userRef); const s = await t.get(sysRef);
+            t.set(userRef, { points: (u.data()?.points || 0) + 1 }, { merge: true });
+            t.set(sysRef, { filmCount: (s.data()?.filmCount || 0) + 1 }, { merge: true });
           });
-          await sendLineMessage(event.replyToken, `❌ 照片上傳雲端失敗，已退還 1 點。請稍後重新傳送！`);
+          await replyMessage(event.replyToken, `❌ 雲端上傳失敗，已自動退還點數與底片，請稍後重新傳送！`);
         }
       }
     }));
 
     return Response.json({ status: 'ok' }, { status: 200 });
   } catch (error) {
-    console.error("Webhook Error:", error);
     return Response.json({ error: 'Internal Server Error' }, { status: 200 });
   }
 }
 
-// 發送 LINE 訊息的輔助函式
-async function sendLineMessage(replyToken, text) {
+async function replyMessage(replyToken, text) {
   await fetch('https://api.line.me/v2/bot/message/reply', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.LINE_ACCESS_TOKEN}` },
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.LINE_ACCESS_TOKEN}` },
     body: JSON.stringify({ replyToken, messages: [{ type: 'text', text }] })
+  });
+}
+async function pushMessage(to, messages) {
+  await fetch('https://api.line.me/v2/bot/message/push', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.LINE_ACCESS_TOKEN}` },
+    body: JSON.stringify({ to, messages })
   });
 }
