@@ -1,5 +1,5 @@
-// ❌ 錯誤的層級（少退了一層）
-import { db } from '../../../lib/firebaseAdmin';
+// ✅ 正確的層級（退回 4 層找到 lib）
+import { db } from '../../../../lib/firebaseAdmin';
 // Vercel Cron Job 每晚執行
 export const dynamic = 'force-dynamic';
 
