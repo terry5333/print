@@ -28,14 +28,21 @@ export async function POST(req) {
             const { userId, driveFileId } = photoDoc.data();
             await db.collection('photos').doc(photoId).delete(); // 刪除佇列
             
-            // 發送精美圖文訊息給學生
+            // 發送精美圖文訊息給學生 (加入 action 讓圖片可點擊)
             await pushMessage(userId, [
               { type: 'text', text: '✅ 你的照片已經成功印出來囉！快來找資訊組長拿吧！' },
               {
                 type: 'flex', altText: '照片列印完成',
                 contents: {
                   type: 'bubble',
-                  hero: { type: 'image', url: `https://drive.google.com/thumbnail?id=${driveFileId}&sz=w800`, size: 'full', aspectRatio: '1:1', aspectMode: 'cover' }
+                  hero: { 
+                    type: 'image', 
+                    url: `https://drive.google.com/thumbnail?id=${driveFileId}&sz=w800`, 
+                    size: 'full', 
+                    aspectRatio: '1:1', 
+                    aspectMode: 'cover',
+                    action: { type: 'uri', uri: `https://drive.google.com/file/d/${driveFileId}/view` }
+                  }
                 }
               }
             ]);
@@ -98,12 +105,19 @@ export async function POST(req) {
 
           await replyMessage(event.replyToken, `✅ 照片已存入雲端！扣除 1 點，剩餘 ${txResult.newPoints} 點。`);
 
-          // 🌟 3. 發送 Flex Message 給管理員
+          // 🌟 3. 發送 Flex Message 給管理員 (加入 action 讓圖片可點擊)
           await pushMessage(ADMIN_ID, [{
             type: 'flex', altText: '📸 新的列印任務',
             contents: {
               type: 'bubble',
-              hero: { type: 'image', url: `https://drive.google.com/thumbnail?id=${driveFile.id}&sz=w800`, size: 'full', aspectRatio: '4:3', aspectMode: 'cover' },
+              hero: { 
+                type: 'image', 
+                url: `https://drive.google.com/thumbnail?id=${driveFile.id}&sz=w800`, 
+                size: 'full', 
+                aspectRatio: '4:3', 
+                aspectMode: 'cover',
+                action: { type: 'uri', uri: `https://drive.google.com/file/d/${driveFile.id}/view` }
+              },
               body: {
                 type: 'box', layout: 'vertical',
                 contents: [
